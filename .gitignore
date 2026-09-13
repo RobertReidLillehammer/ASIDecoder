@@ -1,0 +1,15 @@
+# Decoder outputs, test corpora, scratch — not source.
+RESULT/
+TESTDATA/
+__pycache__/
+*.pyc
+*.pyo
+gmon.out
+
+# Raw GPS data files (never commit); convert.ASI is the exe's working copy.
+*.asi
+*.ASI
+
+# OS / editor junk
+.DS_Store
+Thumbs.db

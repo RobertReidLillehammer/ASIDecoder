@@ -80,6 +80,11 @@ PKT4_SIZE = 29
 PKT15_SIZE = 23
 PKT9_SIZE = 92
 
+# protern_track(): still anchor a segment to its next keyframe when it is short
+# by at most this many 10 Hz records (dropped samples); beyond that the logger
+# paused and the deltas can't bridge the pause.
+CLOSURE_MAX_MISSING = 3
+
 
 class Schema(NamedTuple):
     field_codes: list  # list of (b0, b1)
@@ -280,9 +285,13 @@ class AsiFile:
         the segment so the track stays continuous (a hard reset at keyframes
         would inject position jumps and hence speed spikes downstream).
 
-        Segments with fewer records than 10*dt (logging paused) get no closure
-        correction and are timed forward from their keyframe; records before
-        the first keyframe are dropped (no absolute reference).
+        Closure is still applied when a segment is short by at most
+        CLOSURE_MAX_MISSING records (a dropped sample or two — validated against
+        Protern's own CSV export: 26-29 m -> 5-10 m in such segments). Segments
+        missing more than that (logging paused) get no closure and are timed
+        forward from their keyframe (the pause sits at the END of the segment —
+        confirmed against the CSV timestamps); records before the first keyframe
+        are dropped (no absolute reference).
 
         Returns numpy arrays: t (datetime64[ns] UTC), lat_deg, lon_deg, alt_m,
         gspeed_mps, fix_type, timestamp (4 kHz uptime ticks), keyframe (bool).
@@ -335,10 +344,12 @@ class AsiFile:
             cN = np.concatenate([[0.0], np.cumsum(dN[a + 1:b])])
             cE = np.concatenate([[0.0], np.cumsum(dE[a + 1:b])])
             cD = np.concatenate([[0.0], np.cumsum(dD[a + 1:b])])
-            # closure: spread the residual to the next keyframe over a gap-free segment
+            # closure: spread the residual to the next keyframe over a segment that
+            # is complete or short by at most a few dropped samples
             if i + 1 < nk and not np.isnat(kt[i]) and not np.isnat(kt[i + 1]):
                 dt_s = (kt[i + 1] - kt[i]) / np.timedelta64(1, "s")
-                if n == int(round(10.0 * dt_s)) and n > 1:
+                missing = int(round(10.0 * dt_s)) - n
+                if 0 <= missing <= CLOSURE_MAX_MISSING and n > 1:
                     k2 = K[i + 1]
                     totN = cN[-1] + dN[b]            # displacement through the next keyframe row
                     totE = cE[-1] + dE[b]
